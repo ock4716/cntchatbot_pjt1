@@ -39,13 +39,13 @@ class SearchEngine:
         
         # BM25 인덱스 생성
         print("🔧 BM25 인덱스 생성 중...")
-        self._build_bm25_index()
+        self.build_bm25_index()
         
         print("✓ SearchEngine 초기화 완료")
         print(f"  - FAISS 벡터 수: {faiss_index.ntotal}")
         print(f"  - BM25 문서 수: {len(self.bm25_corpus)}")
     
-    def _tokenize_korean(self, text: str) -> List[str]:
+    def tokenize_korean(self, text: str) -> List[str]:
         """
         한글 텍스트 토큰화 (간단한 방법)
         
@@ -59,13 +59,13 @@ class SearchEngine:
         tokens = re.findall(r'\w+', text.lower())
         return tokens
     
-    def _build_bm25_index(self):
+    def build_bm25_index(self):
         """BM25 인덱스 구축"""
         # 각 청크의 content를 토큰화
         self.bm25_corpus = []
         for chunk in self.chunks:
             content = chunk.get('content', '')
-            tokens = self._tokenize_korean(content)
+            tokens = self.tokenize_korean(content)
             self.bm25_corpus.append(tokens)
         
         # BM25 인덱스 생성
@@ -125,7 +125,7 @@ class SearchEngine:
             검색 결과 리스트
         """
         # 쿼리 토큰화
-        query_tokens = self._tokenize_korean(query)
+        query_tokens = self.tokenize_korean(query)
         
         # BM25 스코어 계산
         scores = self.bm25.get_scores(query_tokens)

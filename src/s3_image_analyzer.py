@@ -95,18 +95,19 @@ class ImageAnalyzer:
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode('utf-8')
     
-    def analyze_image(self, image_path: str) -> str:
+    def analyze_image(self, image_path: str, caption: str = "") -> str:
         """
         이미지를 GPT-4V로 분석
         
         Args:
             image_path: 분석할 이미지 경로
+            caption: 이미지 제목 (있으면 분석에 활용)
         
         Returns:
             이미지 분석 설명
         """
         # 캐시 확인
-        cache_key = f"{image_path}"
+        cache_key = f"{image_path}_{caption}"
         if cache_key in self.cache:
             print(f"  ✓ 캐시에서 로드: {image_path}")
             return self.cache[cache_key]
@@ -120,6 +121,8 @@ class ImageAnalyzer:
         # GPT-4V API 호출
         try:
             prompt = f"""이 그래프/차트를 분석해주세요.
+
+{f'제목: {caption}' if caption else ''}
 
 다음 내용을 포함해주세요:
 1. 그래프가 무엇을 보여주는지 (제목, 축, 범례)
@@ -168,23 +171,26 @@ class ImageAnalyzer:
             return f"이미지 분석 실패: {str(e)}"
     
     def generate_graph_description(self, image_path: str, 
-                                   page_num: int = 0) -> Dict:
+                                   page_num: int = 0,
+                               caption: str = "") -> Dict:
         """
         그래프 설명 생성 (구조화된 형태)
         
         Args:
             image_path: 이미지 경로
             page_num: 페이지 번호
+            caption: 이미지 제목 (있으면 분석에 활용)
         
         Returns:
             그래프 설명 딕셔너리
         """
         # 이미지 분석
-        description = self.analyze_image(image_path)
+        description = self.analyze_image(image_path, caption=caption)
         
         result = {
             "image_path": image_path,
             "page": page_num,
+            "caption": caption, 
             "description": description,
             "analysis_date": None  # 실제로는 datetime 사용
         }
@@ -207,9 +213,15 @@ class ImageAnalyzer:
         for i, img_info in enumerate(image_infos, 1):
             print(f"\n[{i}/{len(image_infos)}] 이미지 분석 중: {img_info.get('image_path')}")
             
+            # caption 정보가 있으면 출력
+            caption = img_info.get('caption', '')
+            if caption:
+                print(f"  제목: {caption}")
+
             result = self.generate_graph_description(
                 image_path=img_info.get('image_path'),
-                page_num=img_info.get('page_num', 0)
+                page_num=img_info.get('page_num', 0),
+                caption=caption 
             )
             
             results.append(result)

@@ -24,8 +24,9 @@ class EmbeddingManager:
     
     def __init__(self, 
                  openai_api_key: str,
+                 institution: str = "unknown",  # ← 추가
                  model: str = "text-embedding-3-large",
-                 cache_path: str = "data/cache/embeddings.pkl",
+                 cache_path: str = None,  # ← None으로 변경
                  dimension: int = 3072):
         """
         EmbeddingManager 초기화
@@ -38,6 +39,12 @@ class EmbeddingManager:
         """
         self.client = OpenAI(api_key=openai_api_key)
         self.model = model
+        self.institution = institution  # ← 추가
+    
+        # 캐시 경로 자동 생성 (기관별)
+        if cache_path is None:
+            cache_path = f"data/cache/embeddings_{institution}.pkl"
+
         self.cache_path = cache_path
         self.dimension = dimension
         self.embedding_cache = self.load_embedding_cache()
@@ -375,7 +382,8 @@ class EmbeddingManager:
         return results
     
     def build_index_from_chunks(self, chunks_path: str, 
-                                output_dir: str = "vector_store") -> Tuple[faiss.Index, List[Dict]]:
+                                output_dir: str = None) -> Tuple[faiss.Index, List[Dict]]:
+
         """
         청크 파일에서 인덱스 구축 (전체 파이프라인)
         
@@ -386,6 +394,9 @@ class EmbeddingManager:
         Returns:
             (FAISS 인덱스, 메타데이터 리스트)
         """
+        if output_dir is None:
+            output_dir = f"data/vector_store/{self.institution}"
+    
         print("\n" + "="*80)
         print("🚀 FAISS 인덱스 구축 시작")
         print("="*80)

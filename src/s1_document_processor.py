@@ -78,6 +78,80 @@ class PDFProcessor:
         print(f"⚠ 기관을 감지할 수 없습니다. 기본값(unknown) 사용")
         return "unknown"
     
+    def _find_caption(self, page, bbox: tuple, element_type: str = "image", 
+                  search_distance: float = 100) -> str:
+        """
+        이미지나 표 근처에서 제목(캡션) 찾기
+        
+        Args:
+            page: PyMuPDF 페이지 객체
+            bbox: 요소의 경계 좌표 (x0, y0, x1, y1)
+            element_type: "image" 또는 "table"
+            search_distance: 제목을 찾을 최대 거리 (픽셀)
+        
+        Returns:
+            찾은 제목 문자열 (없으면 빈 문자열)
+        """
+        # 검색할 키워드 패턴
+        if element_type == "image":
+            patterns = ["그림", "Figure", "Fig", "차트", "Chart", "그래프", "Graph"]
+        else:  # table
+            patterns = ["표", "Table", "Tab"]
+        
+        # 요소의 위쪽과 아래쪽 검색 영역 정의
+        x0, y0, x1, y1 = bbox
+        
+        # 위쪽 검색 영역 (요소 위 100px)
+        search_area_top = (x0 - 50, y0 - search_distance, x1 + 50, y0)
+        
+        candidate_captions = []
+        
+        # 텍스트 블록에서 제목 후보 찾기
+        text_dict = page.get_text("dict")
+        
+        for block in text_dict.get("blocks", []):
+            if block.get("type") != 0:  # 텍스트 블록만
+                continue
+            
+            for line in block.get("lines", []):
+                line_bbox = line.get("bbox", (0, 0, 0, 0))
+                line_y = line_bbox[1]  # y 좌표
+                
+                # 라인의 모든 span 텍스트 합치기
+                line_text = ""
+                for span in line.get("spans", []):
+                    line_text += span.get("text", "")
+                
+                line_text = line_text.strip()
+                
+                # 패턴 매칭
+                has_pattern = any(pattern in line_text for pattern in patterns)
+                
+                if not has_pattern:
+                    continue
+                
+                # 위쪽 또는 아래쪽 검색 영역에 있는지 확인
+                in_top_area = (search_area_top[1] <= line_y <= search_area_top[3])
+                
+                if in_top_area:
+                    # 요소와의 거리 계산
+                    if in_top_area:
+                        distance = y0 - line_y
+                    
+                    candidate_captions.append({
+                        "text": line_text,
+                        "distance": abs(distance),
+                        "position": "top"
+                    })
+        
+        # 가장 가까운 제목 선택
+        if candidate_captions:
+            # 거리순 정렬
+            candidate_captions.sort(key=lambda x: x["distance"])
+            return candidate_captions[0]["text"]
+        
+        return ""
+
     def extract_text_blocks(self, page_num: int) -> List[Dict]:
         """
         특정 페이지의 텍스트 블록 추출 (섹션 구분 없이 전체 텍스트)
@@ -167,13 +241,20 @@ class PDFProcessor:
                 image_rects = page.get_image_rects(xref)
                 bbox = image_rects[0] if image_rects else (0, 0, 0, 0)
                 
+                caption = ""
+                if self.institution == "kb":
+                    caption = self._find_caption(page, bbox, element_type="image")
+                if caption:
+                    print(f"    ✓ 캡션 발견: {caption}")
+
                 images_info.append({
                     "image_path": str(image_path),
                     "image_filename": image_filename,
                     "bbox": tuple(bbox),
                     "xref": xref,
                     "page_num": page_num,
-                    "institution": self.institution
+                    "institution": self.institution,
+                    "caption": caption
                 })
                 
             except Exception as e:
@@ -195,6 +276,8 @@ class PDFProcessor:
         """
         tables_info = []
         page_str = str(page_num + 1)
+
+        page = self.doc[page_num]
         
         # 기관별 파라미터 설정
         if self.institution == "khi":
@@ -221,7 +304,28 @@ class PDFProcessor:
                 table_id = f"{self.pdf_name}_T{page_num+1:02d}_{idx:02d}_lattice"
                 csv_path = self.tables_dir / f"{table_id}.csv"
                 table.to_csv(str(csv_path))
-                
+
+                caption = ""
+                if self.institution == "kb":
+                    # Camelot 표의 bbox 정보 (x1, y1, x2, y2)
+                    # PyMuPDF는 (x0, y0, x1, y1) 형식이므로 변환 필요
+                    table_bbox = table._bbox
+                    # Camelot bbox를 PyMuPDF 형식으로 변환
+                    # Camelot: (x1, y1, x2, y2) - 좌하단, 우상단
+                    # PyMuPDF: (x0, y0, x1, y1) - 좌상단, 우하단
+                    # PDF 좌표계는 아래가 원점이므로 y 좌표 변환 필요
+                    page_height = page.rect.height
+                    pymupdf_bbox = (
+                        table_bbox[0],  # x0
+                        page_height - table_bbox[3],  # y0 (상단)
+                        table_bbox[2],  # x1
+                        page_height - table_bbox[1]   # y1 (하단)
+                    )
+                    
+                    caption = self._find_caption(page, pymupdf_bbox, element_type="table")
+                    if caption:
+                        print(f"    ✓ 표 캡션 발견: {caption}")
+                    
                 tables_info.append({
                     "table_id": table_id,
                     "dataframe": table.df,
@@ -229,7 +333,8 @@ class PDFProcessor:
                     "method": "lattice",
                     "page_num": page_num,
                     "csv_path": str(csv_path),
-                    "institution": self.institution
+                    "institution": self.institution,
+                    "caption": caption 
                 })
                 
         except Exception as e:

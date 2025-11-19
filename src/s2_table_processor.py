@@ -74,13 +74,14 @@ class TableProcessor:
         
         return df_clean
     
-    def convert_to_natural_language(self, df: pd.DataFrame, table_id: str = "") -> str:
+    def convert_to_natural_language(self, df: pd.DataFrame, table_id: str = "", caption: str = "") -> str:
         """
         LLM을 사용하여 표를 자연어로 변환 (캐싱 적용)
         
         Args:
             df: 변환할 DataFrame
             table_id: 표 ID (캐싱용)
+            caption: 표 제목 (있으면 컨텍스트로 활용)
         
         Returns:
             자연어로 변환된 표 설명
@@ -89,7 +90,7 @@ class TableProcessor:
             return "빈 표입니다."
         
         # 캐시 확인
-        cache_key = f"{table_id}"
+        cache_key = f"{table_id}_{caption}" if caption else f"{table_id}"
         if cache_key in self.cache:
             print(f"  ✓ 캐시에서 로드: {table_id}")
             return self.cache[cache_key]
@@ -99,6 +100,8 @@ class TableProcessor:
         
         prompt = f"""
 다음 표를 자연스러운 한국어 문장으로 변환해주세요.
+
+{f'표 제목: {caption}' if caption else ''}
 
 표 데이터:
 {table_str}
@@ -110,6 +113,7 @@ class TableProcessor:
 4. 각 항목을 명확하게 설명
 5. 한국어로 자연스럽게 작성
 6. 나중에 이 텍스트로 질문-답변을 할 수 있도록 충분한 정보 포함
+{f'7. 표 제목({caption})의 맥락을 고려하여 설명' if caption else ''}
 
 출력 형식:
 - 문단 형태로 작성
@@ -139,7 +143,7 @@ class TableProcessor:
             print(f"⚠ LLM 변환 실패: {e}")
             return f"표 변환에 실패했습니다. 원본 데이터:\n{table_str}"
 
-    def process_table(self, df: pd.DataFrame, table_id: str, page_num: int) -> Dict:
+    def process_table(self, df: pd.DataFrame, table_id: str, page_num: int, caption: str = "") -> Dict:
         """
         표 전체 처리 (정제 + 자연어 변환)
         
@@ -147,6 +151,7 @@ class TableProcessor:
             df: 처리할 DataFrame
             table_id: 표 ID
             page_num: 페이지 번호
+            caption: 표 제목
         
         Returns:
             표 처리 결과 (RAG에 필요한 정보만)
@@ -155,12 +160,18 @@ class TableProcessor:
         df_clean = self.clean_table_data(df)
         
         # 자연어 변환
-        natural_language = self.convert_to_natural_language(df_clean, table_id)
+        natural_language = self.convert_to_natural_language(df_clean, table_id, caption)
         
+        if caption:
+            content = f"[{caption}]\n\n{natural_language}"
+        else:
+            content = natural_language
+
         result = {
             "table_id": table_id,
             "page_num": page_num,
-            "content": natural_language,  # 벡터 DB에 저장할 핵심 내용
+            "caption": caption,  # ← caption 필드 추가
+            "content": content,  # 벡터 DB에 저장할 핵심 내용 (제목 포함)
             "content_type": "table"  # 검색시 필터링용
         }
         

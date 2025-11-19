@@ -35,13 +35,13 @@ class QASystem:
         print(f"✓ QASystem 초기화 완료 (모델: {model})")
     
     def _create_system_prompt(self) -> str:
-        """시스템 프롬프트 생성 (시각화 포함)"""
+        """시스템 프롬프트 생성 (시각화 포함 + JSON 스키마 명시)"""
         return """당신은 KB금융지주 경영연구소의 부동산 전문 애널리스트입니다.
 2024 KB 부동산 보고서를 기반으로 건설사 실무진에게 정확하고 실무적인 정보를 제공합니다.
 
 답변 가이드라인:
 1. 제공된 리포트 내용만을 기반으로 답변하세요.
-2. 수치 데이터는 정확하게 인용하세요.
+2. 수치 데이터는 기준 대비로 정확하게 인용하세요.
 3. 각 문장이나 정보의 끝에 반드시 출처 번호를 [1], [2] 형태로 표시하세요.
 4. 모르는 내용은 추측하지 말고 "리포트에 해당 정보가 없습니다"라고 답하세요.
 5. 건설사 실무진이 이해하기 쉽게 구조화된 형태로 답변하세요.
@@ -49,9 +49,10 @@ class QASystem:
 출처 표기 규칙:
 - 각 문장 뒤에 [1], [2] 형태로 출처 번호 표기
 - 답변 끝에 반드시 출처 목록 작성
+- 컨텍스트 [컨텍스트 n]의 출처 번호는 [n]입니다. 즉, [컨텍스트 1] → [1], [컨텍스트 2] → [2]로 사용하세요.
 
 답변 형식 예시:
-2024년 서울 아파트 매매가격은 2.0% 상승했습니다. [1]
+2024년 서울 아파트 매매가격은 23년 대비 2.0% 상승했습니다. [1]
 강남구는 전 고점을 돌파했습니다. [2]
 
 출처:
@@ -65,14 +66,33 @@ class QASystem:
 답변 형식 판단:
 - "표로 보여줘", "정리해줘", "비교해줘" → answer_type: "table"
 - "그래프로", "차트로", "추이", "변화" → answer_type: "chart"
-- 일반 질문 → answer_type: "text"
+- 그 외 일반 질문 → answer_type: "text"
 
-기본 JSON 구조:
+기본 JSON 스키마 (반드시 이 형태를 사용):
 {
-    "answer_type": "text" | "table" | "chart",
-    "text_response": "답변 내용 [1]\\n\\n출처:\\n[1] ...",
-    "visualization": null | {...}
+  "answer_type": "text" | "table" | "chart",
+  "text_response": "문자열. 각 문장 끝에 [1]과 같은 출처 번호를 표기.",
+  "visualization": null | {
+    "type": "table" | "bar" | "line" | "barh" | "pie",
+    "title": "그래프 또는 표 제목 (문자열)",
+    "data": {
+      // type별 형식
+      // table: { "columns": [...], "rows": [[...], ...] }
+      // bar/line/barh: { "x": [...], "y": [...], "xlabel": "...", "ylabel": "..." }
+      // pie: { "labels": [...], "values": [...] }
+    },
+    "source": "시각화에 사용한 리포트 출처 설명 (문자열)"
+  }
 }
+
+중요 규칙:
+1. 반드시 위 JSON 스키마와 key 이름을 그대로 사용하세요.
+2. JSON 이외의 텍스트(설명, 마크다운, 코드블록 등)는 절대 출력하지 마세요.
+3. answer_type에 따라 visualization은 다음과 같이 설정합니다.
+   - "text" → visualization은 반드시 null
+   - "table" 또는 "chart" → visualization에 반드시 올바른 구조의 객체를 넣습니다.
+4. 막대/선 그래프(bar, line, barh)는 data 안에 "x", "y", "xlabel", "ylabel"을 모두 포함해야 합니다.
+5. 원그래프(pie)는 data 안에 "labels", "values"만 포함해야 합니다. "x", "y"를 사용하지 마세요.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 표 (table) 예시
@@ -175,8 +195,10 @@ class QASystem:
 
 중요: 원그래프는 "labels"와 "values" 키를 사용! "x", "y" 아님!
 
-위 예시를 정확히 따라주세요!
+위 예시와 스키마를 정확히 따라주세요.
+JSON 이외의 텍스트는 절대 출력하지 마세요.
 """
+    
     
     def clear_history(self):
         """대화 히스토리 초기화"""
@@ -201,6 +223,7 @@ class QASystem:
 - 키워드를 명확하게
 - 관련 동의어 추가
 - 간결하게 (1-2문장)
+- 차트나 그래프를 그려달라고 요청받을 경우, 적절한 차트(막대, 선, 파이 등)의 종류를 명시
 
 원래 질문: {query}
 
@@ -304,9 +327,17 @@ class QASystem:
 
 사용자 질문: {query}
 
-위 컨텍스트를 기반으로 사용자 질문에 답변해주세요.
-반드시 JSON 형식으로 답변하세요.
-출처 번호 [1], [2] 등을 명시하세요."""
+위 컨텍스트만을 근거로 사용자 질문에 답변하세요.
+
+반드시 아래 요구사항을 지키세요:
+1. 오직 하나의 JSON 객체만 출력하세요.
+2. JSON 앞뒤에 어떤 설명, 마크다운, 코드블록, 자연어 텍스트도 절대 추가하지 마세요.
+3. 시스템 메시지에 정의된 JSON 스키마를 반드시 따르세요.
+4. answer_type, text_response, visualization 세 필드를 모두 포함해야 합니다.
+5. 출처 번호 [1], [2] 등은 text_response 내부 문장 끝에만 표기하세요.
+
+지금부터 바로 JSON 객체만 출력하세요.
+"""
 
         try:
             print(f"\n🤖 LLM 호출 중... (모델: {self.model})")
@@ -415,10 +446,6 @@ class QASystem:
         print("\n" + "="*80)
         print(f"❓ 질문: {query}")
         print("="*80)
-        
-        # 1. 쿼리 리라이팅 (선택)
-        if rewrite:
-            query = self.rewrite_query(query)
         
         # 2. 컨텍스트 구성
         context = self.build_context(search_results)

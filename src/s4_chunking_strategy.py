@@ -167,6 +167,7 @@ class ChunkingStrategy:
         """
         # 표의 자연어 변환 결과 사용
         table_content = table_data.get("content", "")
+        caption = table_data.get("caption", "")
         
         # 표 청크 생성 (doc_type="table"로 구분)
         return {
@@ -176,6 +177,7 @@ class ChunkingStrategy:
                 "institution": table_data.get("institution", "unknown"),
                 "doc_type": "table",  # 표 청크임을 표시
                 "table_id": table_data["table_id"],
+
                 "page": table_data.get("page_num", 0),
                 "chunk_tokens": self.count_tokens(table_content)
             }
@@ -197,9 +199,13 @@ class ChunkingStrategy:
         """
         # GPT-4V 분석 결과(이미지 설명) 사용
         image_description = image_data.get("description", "")
+        caption = image_data.get("caption", "")
         
-        chunk_content = image_description
-        
+        if caption:
+            chunk_content = f"[{caption}]\n\n{image_description}"
+        else:
+            chunk_content = image_description
+    
         # 이미지 파일명에서 식별자 추출 (예: image_01.png -> image_01_png)
         image_path = image_data.get("image_path", "")
         image_filename = image_data.get("image_filename", "")
@@ -213,6 +219,7 @@ class ChunkingStrategy:
                 "institution": image_data.get("institution", "unknown"),
                 "doc_type": "image",  # 이미지 청크임을 표시
                 "image_path": image_path,  # 원본 이미지 경로 보존
+                "caption": caption,
                 "page": image_data.get("page_num", 0),
                 "chunk_tokens": self.count_tokens(chunk_content)
             }

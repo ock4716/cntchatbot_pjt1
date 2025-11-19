@@ -188,7 +188,7 @@ if st.session_state.search_engine is None:
         
         faiss_index_path = vector_store_path / "faiss_index.bin"
         metadata_path = vector_store_path / "metadata.json"
-        chunks_path = processed_path / "kb_chunks.json"
+        chunks_path = processed_path / "kb_report_chunks.json"
         
         # 파일 로드
         faiss_index = faiss.read_index(str(faiss_index_path))
@@ -204,8 +204,10 @@ if st.session_state.search_engine is None:
         from src.s6_search_engine import SearchEngine
         
         api_key = os.getenv("OPENAI_API_KEY")
-        embedding_manager = EmbeddingManager(openai_api_key=api_key)
-        
+        embedding_manager = EmbeddingManager(
+            openai_api_key=api_key,
+            institution="kb"  
+        )
         # SearchEngine 초기화
         st.session_state.search_engine = SearchEngine(
             faiss_index=faiss_index,
